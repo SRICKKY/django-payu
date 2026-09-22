@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PayU payment service{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --line: #1f2937;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --ok: #34d399;
+      --bad: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: radial-gradient(circle at top, #1e293b, var(--bg) 45%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    main {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 48px 20px;
+    }
+    .card {
+      background: color-mix(in srgb, var(--card) 92%, white 8%);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 28px;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.6rem; }
+    p, label { color: var(--muted); }
+    label { display: block; margin: 14px 0 6px; font-size: 0.9rem; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #0b1220;
+      color: var(--text);
+    }
+    button, .button {
+      display: inline-block;
+      margin-top: 18px;
+      background: var(--accent);
+      color: #082f3a;
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .errors { color: var(--bad); }
+    .ok { color: var(--ok); }
+    .muted { color: var(--muted); }
+    dl { display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; }
+    dt { color: var(--muted); }
+    dd { margin: 0; }
+  </style>
+</head>
+<body>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

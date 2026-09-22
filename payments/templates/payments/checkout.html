@@ -1,0 +1,18 @@
+{% extends "payments/base.html" %}
+{% block title %}Redirecting to PayU{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Redirecting to PayU</h1>
+  <p>Transaction <strong>{{ payment.txnid }}</strong> for INR {{ payment.amount }}.</p>
+  <p class="muted">If you are not redirected automatically, use the button below.</p>
+  <form id="payu-checkout" method="post" action="{{ payu_url }}">
+    {% for name, value in fields.items %}
+      <input type="hidden" name="{{ name }}" value="{{ value }}">
+    {% endfor %}
+    <button type="submit">Continue to PayU</button>
+  </form>
+</section>
+<script>
+  document.getElementById("payu-checkout").submit();
+</script>
+{% endblock %}

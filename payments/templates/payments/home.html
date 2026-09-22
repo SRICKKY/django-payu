@@ -1,0 +1,35 @@
+{% extends "payments/base.html" %}
+{% block title %}Start a PayU payment{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>PayU payment service</h1>
+  <p>Create a test transaction and redirect to PayU hosted checkout.</p>
+  {% if errors %}
+    <ul class="errors">
+      {% for field, messages in errors.items %}
+        {% for message in messages %}
+          <li>{{ field }}: {{ message }}</li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <form method="post" action="{% url 'payments:start' %}">
+    {% csrf_token %}
+    <label for="amount">Amount (INR)</label>
+    <input id="amount" name="amount" value="{{ form.amount|default:'10.00' }}" required>
+    <label for="productinfo">Product</label>
+    <input id="productinfo" name="productinfo" value="{{ form.productinfo|default:'Test product' }}" required>
+    <label for="firstname">First name</label>
+    <input id="firstname" name="firstname" value="{{ form.firstname|default:'Ashish' }}" required>
+    <label for="lastname">Last name</label>
+    <input id="lastname" name="lastname" value="{{ form.lastname|default:'Kumar' }}">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" value="{{ form.email|default:'ashish@example.com' }}" required>
+    <label for="phone">Phone</label>
+    <input id="phone" name="phone" value="{{ form.phone|default:'9999999999' }}" required>
+    <label for="reference_id">Reference id (optional)</label>
+    <input id="reference_id" name="reference_id" value="{{ form.reference_id|default:'' }}">
+    <button type="submit">Pay with PayU</button>
+  </form>
+</section>
+{% endblock %}

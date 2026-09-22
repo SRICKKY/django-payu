@@ -1,0 +1,31 @@
+{% extends "payments/base.html" %}
+{% block title %}Payment result{% endblock %}
+{% block content %}
+<section class="card">
+  {% if error %}
+    <h1>Payment could not be verified</h1>
+    <p class="errors">{{ error }}</p>
+  {% elif payment %}
+    <h1 class="{% if payment.status == 'success' %}ok{% elif payment.status == 'failed' or payment.status == 'cancelled' %}errors{% endif %}">
+      Payment {{ payment.status }}
+    </h1>
+    <dl>
+      <dt>Transaction id</dt>
+      <dd>{{ payment.txnid }}</dd>
+      <dt>Amount</dt>
+      <dd>INR {{ payment.amount }}</dd>
+      <dt>PayU id</dt>
+      <dd>{{ payment.payu_id|default:"—" }}</dd>
+      <dt>Mode</dt>
+      <dd>{{ payment.payment_mode|default:"—" }}</dd>
+      <dt>Bank ref</dt>
+      <dd>{{ payment.bank_ref_num|default:"—" }}</dd>
+      {% if payment.error_message %}
+        <dt>Message</dt>
+        <dd>{{ payment.error_message }}</dd>
+      {% endif %}
+    </dl>
+  {% endif %}
+  <p><a class="button" href="{% url 'payments:home' %}">New payment</a></p>
+</section>
+{% endblock %}
