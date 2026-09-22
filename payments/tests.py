@@ -5,9 +5,18 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from payments.models import Payment, PaymentStatus, RefundStatus
-from payments.payu import PayUClient, PayUConfig, payment_request_hash, payment_response_hash
-from payments.services import handle_payu_callback, initiate_payment, refund_payment, verify_with_payu
-
+from payments.payu import (
+    PayUClient,
+    PayUConfig,
+    payment_request_hash,
+    payment_response_hash,
+)
+from payments.services import (
+    handle_payu_callback,
+    initiate_payment,
+    refund_payment,
+    verify_with_payu,
+)
 
 TEST_SETTINGS = {
     "PAYU_MERCHANT_KEY": "testkey",

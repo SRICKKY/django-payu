@@ -6,8 +6,8 @@ from .models import Payment, Refund
 
 class JSONAdminMixin:
     class Media:
-        css = {"all": ["payments/admin_json.css"]}
-        js = ["payments/admin_json.js"]
+        css = {"all": ["payments/admin_json.css"]}  # noqa: RUF012
+        js = ["payments/admin_json.js"]  # noqa: RUF012
 
     def pretty_request_payload(self, obj):
         return pretty_json_html(getattr(obj, "request_payload", None))

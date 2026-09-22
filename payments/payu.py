@@ -10,8 +10,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_EVEN
-from typing import Any, Mapping
+from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Any, Mapping  # noqa: UP035
 
 from django.conf import settings
 
@@ -30,7 +30,7 @@ POSTSERVICE_URLS = {
 }
 
 
-def format_amount(amount: Decimal | str | int | float) -> str:
+def format_amount(amount: Decimal | str | float) -> str:
     value = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
     return f"{value:.2f}"
 
