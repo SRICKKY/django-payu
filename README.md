@@ -35,11 +35,13 @@ python manage.py runserver
 
 ## Payment flow
 
-1. Create a payment with `POST /api/payments/` or the demo form.
+1. Create a payment with `POST /api/payments/` and an `Idempotency-Key` header, or use the demo form.
 2. The service stores the transaction, generates a SHA-512 hash, and returns PayU checkout fields.
 3. The customer pays on PayU hosted checkout.
 4. PayU POSTs back to `/payments/callback/success/` or `/payments/callback/failure/`.
 5. The service verifies the reverse hash, merchant key, and amount before updating status. A later failure cannot overwrite a successful payment.
+
+Retrying `POST /api/payments/` with the same `Idempotency-Key` and body returns the original transaction (`200`) instead of creating a second PayU payment. Reusing the key with a different amount or customer payload returns `409`.
 
 ## API
 
@@ -56,6 +58,7 @@ Create a payment:
 ```bash
 curl -X POST http://127.0.0.1:8000/api/payments/ \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: order-1001" \
   -d '{
     "amount": "10.00",
     "productinfo": "iPhone",

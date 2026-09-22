@@ -16,3 +16,7 @@ class InvalidCallbackError(PaymentServiceError):
 
 class PaymentStateError(PaymentServiceError):
     """Raised when an action is not allowed in the current payment state."""
+
+
+class IdempotencyConflictError(PaymentServiceError):
+    """Raised when an idempotency key is reused with a different request."""

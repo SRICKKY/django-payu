@@ -45,13 +45,14 @@ class PaymentAdmin(JSONAdminMixin, admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("status", "payment_mode")
-    search_fields = ("txnid", "email", "phone", "payu_id", "reference_id")
+    search_fields = ("txnid", "email", "phone", "payu_id", "reference_id", "idempotency_key")
     readonly_fields = (
         "txnid",
         "request_hash",
         "pretty_request_payload",
         "pretty_response_payload",
         "verified_at",
+        "idempotency_key",
         "created_at",
         "updated_at",
     )
@@ -65,6 +66,7 @@ class PaymentAdmin(JSONAdminMixin, admin.ModelAdmin):
                     "amount",
                     "productinfo",
                     "reference_id",
+                    "idempotency_key",
                 )
             },
         ),

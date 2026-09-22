@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import uuid
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils import timezone
 
-from .exceptions import InvalidCallbackError, PaymentStateError
+from .exceptions import IdempotencyConflictError, InvalidCallbackError, PaymentStateError
 from .models import Payment, PaymentStatus, Refund, RefundStatus
 from .payu import PayUClient, format_amount
 
@@ -40,6 +42,34 @@ def generate_txnid() -> str:
 
 def generate_refund_token() -> str:
     return uuid.uuid4().hex[:20]
+
+
+def normalize_idempotency_key(value: str | None) -> str | None:
+    key = str(value or "").strip()
+    if not key:
+        return None
+    if len(key) > 255:
+        raise PaymentStateError("Idempotency-Key must be 255 characters or fewer.")
+    return key
+
+
+def initiate_fingerprint(data: dict) -> str:
+    canonical = {
+        "amount": format_amount(data["amount"]),
+        "productinfo": str(data.get("productinfo") or ""),
+        "firstname": str(data.get("firstname") or ""),
+        "lastname": str(data.get("lastname") or ""),
+        "email": str(data.get("email") or ""),
+        "phone": str(data.get("phone") or ""),
+        "reference_id": str(data.get("reference_id") or ""),
+        "udf1": str(data.get("udf1") or ""),
+        "udf2": str(data.get("udf2") or ""),
+        "udf3": str(data.get("udf3") or ""),
+        "udf4": str(data.get("udf4") or ""),
+        "udf5": str(data.get("udf5") or ""),
+    }
+    blob = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def _absolute_url(path: str) -> str:
@@ -75,6 +105,12 @@ def build_checkout(payment: Payment, client: PayUClient | None = None) -> dict:
     payment.request_hash = fields["hash"]
     payment.request_payload = fields
     payment.save(update_fields=["request_hash", "request_payload", "updated_at"])
+    return checkout_from_payment(payment, client=client)
+
+
+def checkout_from_payment(payment: Payment, client: PayUClient | None = None) -> dict:
+    client = client or PayUClient()
+    fields = payment.request_payload or {}
     return {
         "txnid": payment.txnid,
         "payu_url": client.config.payment_url,
@@ -85,9 +121,8 @@ def build_checkout(payment: Payment, client: PayUClient | None = None) -> dict:
     }
 
 
-def initiate_payment(*, amount, productinfo, firstname, email, phone, lastname="", reference_id="", udfs=None, client=None):
-    udfs = udfs or {}
-    payment = Payment.objects.create(
+def _create_payment(*, amount, productinfo, firstname, email, phone, lastname, reference_id, udfs, idempotency_key, fingerprint):
+    return Payment.objects.create(
         txnid=generate_txnid(),
         amount=Decimal(format_amount(amount)),
         productinfo=productinfo,
@@ -102,9 +137,87 @@ def initiate_payment(*, amount, productinfo, firstname, email, phone, lastname="
         udf3=udfs.get("udf3", ""),
         udf4=udfs.get("udf4", ""),
         udf5=udfs.get("udf5", ""),
+        idempotency_key=idempotency_key,
+        idempotency_fingerprint=fingerprint,
+    )
+
+
+def _replay_or_conflict(payment: Payment, fingerprint: str, client: PayUClient | None) -> tuple[Payment, dict, bool]:
+    if payment.idempotency_fingerprint and payment.idempotency_fingerprint != fingerprint:
+        raise IdempotencyConflictError(
+            "Idempotency-Key was reused with a different payment request."
+        )
+    if not payment.request_payload:
+        return payment, build_checkout(payment, client=client), False
+    return payment, checkout_from_payment(payment, client=client), False
+
+
+def initiate_payment(
+    *,
+    amount,
+    productinfo,
+    firstname,
+    email,
+    phone,
+    lastname="",
+    reference_id="",
+    udfs=None,
+    idempotency_key=None,
+    client=None,
+) -> tuple[Payment, dict, bool]:
+    udfs = udfs or {}
+    fingerprint = initiate_fingerprint(
+        {
+            "amount": amount,
+            "productinfo": productinfo,
+            "firstname": firstname,
+            "lastname": lastname or "",
+            "email": email,
+            "phone": phone,
+            "reference_id": reference_id or "",
+            **{f"udf{i}": udfs.get(f"udf{i}", "") for i in range(1, 6)},
+        }
+    )
+    key = normalize_idempotency_key(idempotency_key)
+
+    if key:
+        existing = Payment.objects.filter(idempotency_key=key).first()
+        if existing:
+            return _replay_or_conflict(existing, fingerprint, client)
+        try:
+            with transaction.atomic():
+                payment = _create_payment(
+                    amount=amount,
+                    productinfo=productinfo,
+                    firstname=firstname,
+                    email=email,
+                    phone=phone,
+                    lastname=lastname,
+                    reference_id=reference_id,
+                    udfs=udfs,
+                    idempotency_key=key,
+                    fingerprint=fingerprint,
+                )
+                checkout = build_checkout(payment, client=client)
+                return payment, checkout, True
+        except IntegrityError:
+            existing = Payment.objects.get(idempotency_key=key)
+            return _replay_or_conflict(existing, fingerprint, client)
+
+    payment = _create_payment(
+        amount=amount,
+        productinfo=productinfo,
+        firstname=firstname,
+        email=email,
+        phone=phone,
+        lastname=lastname,
+        reference_id=reference_id,
+        udfs=udfs,
+        idempotency_key=None,
+        fingerprint=fingerprint,
     )
     checkout = build_checkout(payment, client=client)
-    return payment, checkout
+    return payment, checkout, True
 
 
 def _map_payu_status(raw_status: str) -> str:
