@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from payments.exceptions import IdempotencyConflictError
 from payments.models import Payment, PaymentStatus, RefundStatus
 from payments.payu import (
     PayUClient,
@@ -118,7 +119,7 @@ class PaymentServiceTests(TestCase):
         self.client_payu = test_client()
 
     def test_initiate_payment_stores_checkout_hash(self):
-        payment, checkout = initiate_payment(
+        payment, checkout, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -133,8 +134,46 @@ class PaymentServiceTests(TestCase):
         self.assertEqual(checkout["payu_url"], "https://test.payu.in/_payment")
         self.assertIn("surl", checkout["fields"])
 
+    def test_same_idempotency_key_does_not_create_a_second_payment(self):
+        kwargs = {
+            "amount": "10.00",
+            "productinfo": "iPhone",
+            "firstname": "Ashish",
+            "email": "ashish@example.com",
+            "phone": "9999999999",
+            "idempotency_key": "order-abc",
+            "client": self.client_payu,
+        }
+        first, _, created_first = initiate_payment(**kwargs)
+        second, _, created_second = initiate_payment(**kwargs)
+        self.assertTrue(created_first)
+        self.assertFalse(created_second)
+        self.assertEqual(first.txnid, second.txnid)
+        self.assertEqual(Payment.objects.count(), 1)
+
+    def test_reused_idempotency_key_with_different_amount_conflicts(self):
+        initiate_payment(
+            amount="10.00",
+            productinfo="iPhone",
+            firstname="Ashish",
+            email="ashish@example.com",
+            phone="9999999999",
+            idempotency_key="order-abc",
+            client=self.client_payu,
+        )
+        with self.assertRaises(IdempotencyConflictError):
+            initiate_payment(
+                amount="20.00",
+                productinfo="iPhone",
+                firstname="Ashish",
+                email="ashish@example.com",
+                phone="9999999999",
+                idempotency_key="order-abc",
+                client=self.client_payu,
+            )
+
     def test_valid_success_callback_marks_payment_success(self):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -147,7 +186,7 @@ class PaymentServiceTests(TestCase):
         self.assertEqual(updated.payu_id, "999888777")
 
     def test_invalid_hash_is_rejected(self):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -163,7 +202,7 @@ class PaymentServiceTests(TestCase):
         self.assertEqual(payment.status, PaymentStatus.CREATED)
 
     def test_amount_tampering_is_rejected(self):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -176,7 +215,7 @@ class PaymentServiceTests(TestCase):
             handle_payu_callback(payload, client=self.client_payu)
 
     def test_successful_payment_is_not_downgraded(self):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -190,7 +229,7 @@ class PaymentServiceTests(TestCase):
         self.assertEqual(payment.status, PaymentStatus.SUCCESS)
 
     def test_verify_with_payu_updates_status(self):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -214,7 +253,7 @@ class PaymentServiceTests(TestCase):
         self.assertIsNotNone(updated.verified_at)
 
     def test_refund_marks_payment_refunded(self):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -237,7 +276,7 @@ class PaymentServiceTests(TestCase):
 
 @override_settings(**TEST_SETTINGS)
 class PaymentAPITests(TestCase):
-    def test_initiate_api_returns_checkout_fields(self):
+    def test_initiate_api_requires_idempotency_key(self):
         response = self.client.post(
             reverse("payments:payment-list"),
             {
@@ -249,14 +288,83 @@ class PaymentAPITests(TestCase):
             },
             content_type="application/json",
         )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Payment.objects.count(), 0)
+
+    def test_initiate_api_returns_checkout_fields(self):
+        response = self.client.post(
+            reverse("payments:payment-list"),
+            {
+                "amount": "10.00",
+                "productinfo": "iPhone",
+                "firstname": "Ashish",
+                "email": "ashish@example.com",
+                "phone": "9999999999",
+            },
+            content_type="application/json",
+            headers={"Idempotency-Key": "pay-1"},
+        )
         self.assertEqual(response.status_code, 201)
         body = response.json()
         self.assertIn("fields", body)
         self.assertEqual(body["fields"]["key"], "testkey")
         self.assertTrue(Payment.objects.filter(txnid=body["txnid"]).exists())
 
+    def test_initiate_api_replays_the_same_idempotency_key(self):
+        payload = {
+            "amount": "10.00",
+            "productinfo": "iPhone",
+            "firstname": "Ashish",
+            "email": "ashish@example.com",
+            "phone": "9999999999",
+        }
+        first = self.client.post(
+            reverse("payments:payment-list"),
+            payload,
+            content_type="application/json",
+            headers={"Idempotency-Key": "pay-1"},
+        )
+        second = self.client.post(
+            reverse("payments:payment-list"),
+            payload,
+            content_type="application/json",
+            headers={"Idempotency-Key": "pay-1"},
+        )
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()["txnid"], second.json()["txnid"])
+        self.assertEqual(Payment.objects.count(), 1)
+
+    def test_initiate_api_rejects_idempotency_key_reuse_with_different_body(self):
+        self.client.post(
+            reverse("payments:payment-list"),
+            {
+                "amount": "10.00",
+                "productinfo": "iPhone",
+                "firstname": "Ashish",
+                "email": "ashish@example.com",
+                "phone": "9999999999",
+            },
+            content_type="application/json",
+            headers={"Idempotency-Key": "pay-1"},
+        )
+        response = self.client.post(
+            reverse("payments:payment-list"),
+            {
+                "amount": "50.00",
+                "productinfo": "iPhone",
+                "firstname": "Ashish",
+                "email": "ashish@example.com",
+                "phone": "9999999999",
+            },
+            content_type="application/json",
+            headers={"Idempotency-Key": "pay-1"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Payment.objects.count(), 1)
+
     def test_callback_endpoint_accepts_signed_payu_post(self):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -274,7 +382,7 @@ class PaymentAPITests(TestCase):
 
     @patch("payments.views.verify_with_payu")
     def test_verify_endpoint(self, mocked_verify):
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",
@@ -314,7 +422,7 @@ class PrettyJSONAdminTests(TestCase):
         user = get_user_model().objects.create_superuser(
             "admin", "admin@example.com", "pass"
         )
-        payment, _ = initiate_payment(
+        payment, _, _ = initiate_payment(
             amount="10.00",
             productinfo="iPhone",
             firstname="Ashish",

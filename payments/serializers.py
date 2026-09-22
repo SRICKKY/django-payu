@@ -57,6 +57,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "email",
             "phone",
             "reference_id",
+            "idempotency_key",
             "status",
             "payu_id",
             "bank_ref_num",

@@ -31,6 +31,8 @@ class Payment(models.Model):
     email = models.EmailField()
     phone = models.CharField(max_length=15)
     reference_id = models.CharField(max_length=64, blank=True, db_index=True)
+    idempotency_key = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    idempotency_fingerprint = models.CharField(max_length=64, blank=True)
     status = models.CharField(
         max_length=32,
         choices=PaymentStatus.choices,

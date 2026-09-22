@@ -29,6 +29,7 @@
     <input id="phone" name="phone" value="{{ form.phone|default:'9999999999' }}" required>
     <label for="reference_id">Reference id (optional)</label>
     <input id="reference_id" name="reference_id" value="{{ form.reference_id|default:'' }}">
+    <input type="hidden" name="idempotency_key" value="{{ form.idempotency_key|default:idempotency_key }}">
     <button type="submit">Pay with PayU</button>
   </form>
 </section>
